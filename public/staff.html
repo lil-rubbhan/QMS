@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Staff — Queue Control</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><h1>Queue</h1></div>
+    <span class="tag">Staff</span>
+  </div>
+
+  <div class="card">
+    <div class="staff-grid">
+      <div class="stat serving">
+        <div class="k">Now Serving</div>
+        <div class="v" id="statServing">—</div>
+      </div>
+      <div class="stat">
+        <div class="k">Waiting</div>
+        <div class="v" id="statWaiting">0</div>
+      </div>
+    </div>
+
+    <div class="assign-row" id="assignRow" style="display:none;">
+      <label for="assignSelect">Handling this:</label>
+      <select id="assignSelect"></select>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="callNextBtn">Call Next</button>
+      <button class="btn secondary" id="doneBtn">Mark Done</button>
+    </div>
+
+    <div class="queue-list">
+      <h3>Waiting</h3>
+      <div id="waitingList"></div>
+    </div>
+
+    <div class="reset-row">
+      <button class="reset-link" id="resetBtn">Reset queue</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h3 class="section-title">Volunteers</h3>
+
+    <div class="add-volunteer-row">
+      <input type="text" id="volunteerName" placeholder="Volunteer name" maxlength="40">
+      <button class="btn primary small" id="addVolunteerBtn">Add</button>
+    </div>
+
+    <div id="volunteerList" class="volunteer-list"></div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <h3 class="section-title">Kiosk QR Code</h3>
+    <p class="qr-help">Guests scan this to take a number on their own phone.</p>
+    <div class="qr-box">
+      <div id="qrcode"></div>
+    </div>
+    <div class="qr-url" id="qrUrl"></div>
+    <div class="qr-warning" id="qrWarning" style="display:none;"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+function fmtTime(ts){ return new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
+
+function render(state){
+  const waiting = state.tickets.filter(t => t.status === 'waiting').sort((a,b)=>a.number-b.number);
+  const servingTicket = state.tickets.find(t => t.number === state.nowServing);
+
+  document.getElementById('statServing').textContent = state.nowServing ? String(state.nowServing).padStart(3,'0') : '—';
+  document.getElementById('statWaiting').textContent = waiting.length;
+  document.getElementById('callNextBtn').disabled = waiting.length === 0;
+  document.getElementById('doneBtn').disabled = !state.nowServing;
+
+  const assignRow = document.getElementById('assignRow');
+  const select = document.getElementById('assignSelect');
+  if (servingTicket) {
+    assignRow.style.display = 'flex';
+    const options = state.volunteers.filter(v => v.status === 'available' || v.id === servingTicket.assignedVolunteer);
+    if (options.length === 0) {
+      select.innerHTML = '<option value="">No volunteers added yet</option>';
+      select.disabled = true;
+    } else {
+      select.disabled = false;
+      select.innerHTML = '<option value="">Unassigned</option>' + options.map(v =>
+        `<option value="${v.id}" ${v.id === servingTicket.assignedVolunteer ? 'selected' : ''}>${v.name}</option>`
+      ).join('');
+    }
+  } else {
+    assignRow.style.display = 'none';
+  }
+
+  const list = document.getElementById('waitingList');
+  list.innerHTML = waiting.length === 0
+    ? '<div class="empty-note">No one waiting.</div>'
+    : waiting.map(t => `
+        <div class="qrow">
+          <span class="n">#${String(t.number).padStart(3,'0')}</span>
+          <span class="t">since ${fmtTime(t.createdAt)}</span>
+        </div>`).join('');
+
+  const vList = document.getElementById('volunteerList');
+  if (state.volunteers.length === 0) {
+    vList.innerHTML = '<div class="empty-note">No volunteers added yet.</div>';
+  } else {
+    vList.innerHTML = state.volunteers.map(v => `
+      <div class="vrow">
+        <div class="vname">${v.name}</div>
+        <div class="vstatus">
+          ${v.status === 'busy'
+            ? `<span class="badge busy">Handling #${String(v.currentTicket).padStart(3,'0')}</span>`
+            : `<span class="badge free">Available</span>`}
+        </div>
+        <button class="vremove" data-id="${v.id}" title="Remove volunteer" ${v.status === 'busy' ? 'disabled' : ''}>&times;</button>
+      </div>`).join('');
+  }
+}
+
+async function refresh(){
+  try{
+    const res = await fetch('/api/state');
+    render(await res.json());
+  }catch(e){}
+}
+
+async function post(url, body){
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await res.json();
+  if (data.ok === false && data.message) alert(data.message);
+  render(data.state);
+}
+
+document.getElementById('callNextBtn').addEventListener('click', () => post('/api/call-next'));
+document.getElementById('doneBtn').addEventListener('click', () => post('/api/done'));
+
+document.getElementById('assignSelect').addEventListener('change', (e) => {
+  if (!e.target.value) return;
+  post('/api/assign', { volunteerId: e.target.value });
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset the whole queue? This clears all tickets (volunteers stay on the list).')) return;
+  post('/api/reset');
+});
+
+document.getElementById('addVolunteerBtn').addEventListener('click', () => {
+  const input = document.getElementById('volunteerName');
+  const name = input.value.trim();
+  if (!name) return;
+  post('/api/volunteers/add', { name });
+  input.value = '';
+  input.focus();
+});
+
+document.getElementById('volunteerName').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('addVolunteerBtn').click();
+});
+
+document.getElementById('volunteerList').addEventListener('click', (e) => {
+  const btn = e.target.closest('.vremove');
+  if (!btn || btn.disabled) return;
+  post(`/api/volunteers/${btn.dataset.id}/remove`);
+});
+
+refresh();
+setInterval(refresh, 2000);
+
+// ---- Kiosk QR code ----
+const kioskUrl = `${location.protocol}//${location.host}/kiosk.html`;
+document.getElementById('qrUrl').textContent = kioskUrl;
+
+new QRCode(document.getElementById('qrcode'), {
+  text: kioskUrl,
+  width: 180,
+  height: 180,
+  colorDark: '#262420',
+  colorLight: '#FBF8F1'
+});
+
+// Warn if this Staff page itself was opened via localhost — the QR code
+// would then point guests to their own phone's localhost, which won't work.
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+  const warn = document.getElementById('qrWarning');
+  warn.style.display = 'block';
+  warn.innerHTML = '⚠️ You opened this Staff page via "localhost" — the QR code above won\'t work for guests. Open this page using this computer\'s network IP instead (shown in the server terminal), then reload.';
+}
+
+</script>
+</body>
+</html>

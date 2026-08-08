@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Now Serving</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><h1>Queue</h1></div>
+    <span class="tag">Display</span>
+  </div>
+
+  <div class="board">
+    <div class="eyebrow">Now Serving</div>
+    <div id="servingBig" class="serving-num">—</div>
+    <div id="noneMsg" class="none" style="display:none;">No one waiting</div>
+    <div class="next-row" id="nextRow"></div>
+  </div>
+</div>
+
+<script>
+async function refresh(){
+  try{
+    const res = await fetch('/api/state');
+    const state = await res.json();
+    const waiting = state.tickets.filter(t => t.status === 'waiting').sort((a,b)=>a.number-b.number);
+
+    document.getElementById('servingBig').style.display = state.nowServing ? 'block' : 'none';
+    document.getElementById('noneMsg').style.display = state.nowServing ? 'none' : 'block';
+    document.getElementById('servingBig').textContent = state.nowServing ? String(state.nowServing).padStart(3,'0') : '';
+
+    const next = waiting[0];
+    document.getElementById('nextRow').innerHTML = next
+      ? `Next up &nbsp; <b>${String(next.number).padStart(3,'0')}</b>`
+      : (waiting.length ? '' : 'Queue is empty');
+  }catch(e){ /* keep showing last known state on a blip */ }
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

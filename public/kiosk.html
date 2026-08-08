@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Take a Number</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><h1>Queue</h1></div>
+    <span class="tag">Kiosk</span>
+  </div>
+
+  <div class="card">
+    <div class="queue-status" id="queueStatus">
+      <div class="qs-item">
+        <div class="qs-k">Now Serving</div>
+        <div class="qs-v" id="qsServing">—</div>
+      </div>
+      <div class="qs-divider"></div>
+      <div class="qs-item">
+        <div class="qs-k">Waiting</div>
+        <div class="qs-v" id="qsWaiting">—</div>
+      </div>
+    </div>
+
+    <div class="kiosk-intro"><p>Tap below to take your place in line.</p></div>
+    <button class="take-btn" id="takeBtn">Take a Number</button>
+    <div id="ticketOut"></div>
+  </div>
+
+  <div class="device-note">This device only issues numbers. Staff calls from the Staff screen.</div>
+</div>
+
+<script>
+let myTicket = null;
+
+function fmtTime(ts){ return new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
+
+async function fetchState(){
+  const res = await fetch('/api/state');
+  return res.json();
+}
+
+function renderQueueStatus(state){
+  const waiting = state.tickets.filter(t => t.status === 'waiting').length;
+  document.getElementById('qsServing').textContent = state.nowServing ? String(state.nowServing).padStart(3,'0') : '—';
+  document.getElementById('qsWaiting').textContent = waiting;
+}
+
+function renderTicket(state){
+  if(!myTicket){ document.getElementById('ticketOut').innerHTML = ''; return; }
+  const waiting = state.tickets.filter(t => t.status === 'waiting').sort((a,b)=>a.number-b.number);
+  const ahead = waiting.filter(t => t.number < myTicket.number).length;
+  const isServing = state.nowServing === myTicket.number;
+
+  const liveTicket = state.tickets.find(t => t.number === myTicket.number);
+  const volunteer = liveTicket && liveTicket.assignedVolunteer
+    ? state.volunteers.find(v => v.id === liveTicket.assignedVolunteer)
+    : null;
+
+  let statusHtml;
+  if (isServing) {
+    statusHtml = volunteer
+      ? `<b>It's your turn!</b> ${volunteer.name} will be coming over to guide you`
+      : `<b>It's your turn!</b> Someone will be with you shortly`;
+  } else if (ahead === 0) {
+    statusHtml = '<b>You are next</b>';
+  } else {
+    statusHtml = `<b>${ahead}</b> ahead of you`;
+  }
+
+  document.getElementById('ticketOut').innerHTML = `
+    <div class="ticket ${isServing ? 'ticket-serving' : ''}">
+      <div class="label">Your Number</div>
+      <div class="num">${String(myTicket.number).padStart(3,'0')}</div>
+      <hr class="ticket-hr">
+      <div class="meta">${statusHtml}</div>
+      <div class="stamp">Issued ${fmtTime(myTicket.createdAt)}</div>
+    </div>`;
+}
+
+document.getElementById('takeBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('takeBtn');
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/take', { method: 'POST' });
+    const data = await res.json();
+    myTicket = data.ticket;
+    renderTicket(data.state);
+    renderQueueStatus(data.state);
+  }catch(e){
+    alert('Could not reach the queue server. Check your connection.');
+  }
+  btn.disabled = false;
+});
+
+// Keep the ticket's "ahead of you" count fresh
+setInterval(async () => {
+  if(!myTicket) return;
+  try{ renderTicket(await fetchState()); }catch(e){}
+}, 3000);
+
+// Refresh the "Now Serving / Waiting" strip every minute, so anyone
+// walking up to the kiosk sees a current picture before taking a number
+async function refreshQueueStatus(){
+  try{ renderQueueStatus(await fetchState()); }catch(e){}
+}
+refreshQueueStatus();
+setInterval(refreshQueueStatus, 60000);
+</script>
+</body>
+</html>
