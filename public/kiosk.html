@@ -37,41 +37,44 @@
 <script>
 let myTicket = null;
 let hasAlerted = false; // so we only alert once per ticket
+let audioCtx = null; // created on user gesture, reused for all chimes
 
 function fmtTime(ts){ return new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
 
 // ---- "Your turn" alert: sound + browser notification + vibration ----
-function playChime(){
-  try{
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const notes = [880, 1108, 1318]; // a quick pleasant 3-note chime
-    notes.forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      const start = ctx.currentTime + i * 0.18;
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.4, start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.35);
-      osc.start(start);
-      osc.stop(start + 0.4);
-    });
-  }catch(e){ console.warn('Could not play chime:', e); }
+function playChimeAt(ctx, atTime){
+  const notes = [880, 1108, 1318]; // a quick pleasant 3-note chime
+  notes.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    const start = atTime + i * 0.18;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(0.4, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.35);
+    osc.start(start);
+    osc.stop(start + 0.4);
+  });
 }
 
 function notifyMyTurn(){
   if (hasAlerted) return;
   hasAlerted = true;
 
-  // Play the chime repeatedly for ~10 seconds so it's hard to miss
-  const REPEAT_COUNT = 5;
-  const REPEAT_GAP_MS = 2000; // 2s between chimes = covers 10s total
-  for (let i = 0; i < REPEAT_COUNT; i++) {
-    setTimeout(playChime, i * REPEAT_GAP_MS);
-  }
+  // Schedule all chimes up front on ONE AudioContext so the browser
+  // doesn't block later beeps as "not from a user gesture"
+  try{
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const REPEAT_COUNT = 5;
+    const REPEAT_GAP_S = 2; // 2s apart = covers 10s total
+    for (let i = 0; i < REPEAT_COUNT; i++) {
+      playChimeAt(audioCtx, audioCtx.currentTime + i * REPEAT_GAP_S);
+    }
+  }catch(e){ console.warn('Could not play chime:', e); }
 
   if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
 
@@ -83,11 +86,14 @@ function notifyMyTurn(){
   }
 }
 
-// Ask for notification permission once, right when they take a ticket
-// (must be triggered from a user gesture, so we call this in the click handler)
+// Ask for notification permission, and warm up the AudioContext,
+// right when they take a ticket (must be triggered from a user gesture)
 function requestNotifyPermission(){
   if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
+  }
+  if (!audioCtx) {
+    try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){}
   }
 }
 
