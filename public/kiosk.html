@@ -66,9 +66,14 @@ function notifyMyTurn(){
   if (hasAlerted) return;
   hasAlerted = true;
 
-  playChime();
+  // Play the chime repeatedly for ~10 seconds so it's hard to miss
+  const REPEAT_COUNT = 5;
+  const REPEAT_GAP_MS = 2000; // 2s between chimes = covers 10s total
+  for (let i = 0; i < REPEAT_COUNT; i++) {
+    setTimeout(playChime, i * REPEAT_GAP_MS);
+  }
 
-  if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
 
   if ('Notification' in window && Notification.permission === 'granted') {
     new Notification("It's your turn!", {
