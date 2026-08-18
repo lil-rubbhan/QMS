@@ -69,7 +69,7 @@ function notifyMyTurn(){
   try{
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    const REPEAT_COUNT = 5;
+    const REPEAT_COUNT = 7;
     const REPEAT_GAP_S = 2; // 2s apart = covers 10s total
     for (let i = 0; i < REPEAT_COUNT; i++) {
       playChimeAt(audioCtx, audioCtx.currentTime + i * REPEAT_GAP_S);
